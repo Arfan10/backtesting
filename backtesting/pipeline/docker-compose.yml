@@ -1,0 +1,44 @@
+services:
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: delta_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     delta
+      POSTGRES_PASSWORD: delta_secret      # change this
+      POSTGRES_DB:       delta_data
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # persistent data
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql  # auto-runs on first start
+    ports:
+      - "5433:5432"    # expose if you want to connect from host (e.g. DBeaver)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delta -d delta_data"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Delta Exchange Pipeline ──────────────────────────────────────────────────
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: delta_pipeline
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy    # wait for PG to be ready before starting
+    environment:
+      DELTA_API_KEY:    ${DELTA_API_KEY}
+      DELTA_API_SECRET: ${DELTA_API_SECRET}
+      POSTGRES_DSN:     postgresql://delta:delta_secret@postgres:5432/delta_data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
